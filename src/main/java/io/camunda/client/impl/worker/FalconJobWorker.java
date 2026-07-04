@@ -101,7 +101,7 @@ final class FalconJobWorker implements JobWorker, Closeable {
       return;
     }
     try {
-      handler.handle(jobClient, job);
+      handler.handle(new FalconJobClient(jobClient, falcon), job);
     } catch (final Exception userError) {
       LOG.warn("Falcon job handler threw for jobKey={} ({}); auto-failing",
           job.getKey(), userError.toString());

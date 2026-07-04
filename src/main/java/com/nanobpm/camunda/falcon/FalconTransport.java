@@ -182,33 +182,45 @@ public final class FalconTransport implements AutoCloseable {
     sendFrame(f);
   }
 
-  public void completeJob(final String jobKey, final Map<String, Object> variables) {
+  public CompletableFuture<CommandResult> completeJob(final String jobKey, final Map<String, Object> variables) {
+    final int c = corr.incrementAndGet();
+    final CompletableFuture<CommandResult> result = new CompletableFuture<>();
+    pending.put(c, result);
     final ObjectNode f = JSON.createObjectNode();
     f.put("type", "completeJob");
-    f.put("corr", corr.incrementAndGet());
+    f.put("corr", c);
     f.put("jobKey", jobKey);
     f.set("variables", variables == null ? null : JSON.valueToTree(variables));
     sendFrame(f);
+    return result;
   }
 
-  public void failJob(final String jobKey, final int retries, final String errorMessage) {
+  public CompletableFuture<CommandResult> failJob(final String jobKey, final int retries, final String errorMessage) {
+    final int c = corr.incrementAndGet();
+    final CompletableFuture<CommandResult> result = new CompletableFuture<>();
+    pending.put(c, result);
     final ObjectNode f = JSON.createObjectNode();
     f.put("type", "failJob");
-    f.put("corr", corr.incrementAndGet());
+    f.put("corr", c);
     f.put("jobKey", jobKey);
     f.put("retries", retries);
     putNullable(f, "errorMessage", errorMessage);
     sendFrame(f);
+    return result;
   }
 
-  public void throwError(final String jobKey, final String errorCode, final String errorMessage) {
+  public CompletableFuture<CommandResult> throwError(final String jobKey, final String errorCode, final String errorMessage) {
+    final int c = corr.incrementAndGet();
+    final CompletableFuture<CommandResult> result = new CompletableFuture<>();
+    pending.put(c, result);
     final ObjectNode f = JSON.createObjectNode();
     f.put("type", "throwError");
-    f.put("corr", corr.incrementAndGet());
+    f.put("corr", c);
     f.put("jobKey", jobKey);
     f.put("errorCode", errorCode);
     putNullable(f, "errorMessage", errorMessage);
     sendFrame(f);
+    return result;
   }
 
   public void grantJobCredits(final String jobType, final int n) {
