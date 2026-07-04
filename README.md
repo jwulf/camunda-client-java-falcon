@@ -5,7 +5,7 @@
 This artifact wraps the stock Camunda Java client and adds transparent
 **Nano Falcon Protocol** support. Point your app at a Camunda 8 gateway →
 you get REST/gRPC (unchanged). Point the same app at a
-[Nano](https://github.com/jwulf/nanobpmn) gateway → it auto-upgrades to the
+Nano gateway → it auto-upgrades to the
 Falcon WebSocket transport (server-pushed jobs, credit-metered command
 stream). Zero code changes.
 
