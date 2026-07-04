@@ -229,7 +229,9 @@ public final class FalconTransport implements AutoCloseable {
       return;
     }
     try {
-      ws.sendText(JSON.writeValueAsString(f), true);
+      final String json = JSON.writeValueAsString(f);
+      LOG.debug("falcon → {}", json);
+      ws.sendText(json, true);
     } catch (final Exception e) {
       LOG.warn("falcon send failed", e);
     }
@@ -259,6 +261,7 @@ public final class FalconTransport implements AutoCloseable {
 
   private void handle(final JsonNode frame) {
     final String type = frame.path("type").asText("");
+    LOG.debug("falcon ← type={} raw={}", type, frame);
     switch (type) {
       case "welcome":
         open = true;
