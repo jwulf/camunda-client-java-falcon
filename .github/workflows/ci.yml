@@ -1,0 +1,36 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - name: Build + verify shaded jar
+        run: mvn -B -DskipTests package
+      - name: Assert patched classes are present exactly once
+        run: |
+          jar=$(ls target/camunda-client-java-falcon-*.jar | grep -v original- | grep -v -e sources -e javadoc | head -1)
+          echo "checking $jar"
+          for c in \
+            io/camunda/client/impl/CamundaClientImpl.class \
+            io/camunda/client/impl/command/CreateProcessInstanceCommandImpl.class \
+            io/camunda/client/impl/worker/JobWorkerBuilderImpl.class; do
+            n=$(unzip -l "$jar" | grep -c " $c$" || true)
+            if [ "$n" != "1" ]; then
+              echo "ERROR: $c appears $n times in $jar (expected 1)"
+              exit 1
+            fi
+          done
+          # And our new classes must be present.
+          unzip -l "$jar" | grep -q com/nanobpm/camunda/falcon/FalconTransport.class
+          unzip -l "$jar" | grep -q io/camunda/client/impl/worker/FalconJobWorker.class

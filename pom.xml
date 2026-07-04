@@ -1,0 +1,225 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  camunda-client-java-falcon: a drop-in replacement Maven artifact for
+  io.camunda:camunda-client-java that adds Nano Falcon Protocol support.
+
+  Design (Approach D2):
+    - Depend on the stock io.camunda:camunda-client-java at build time.
+    - Compile our own patched copies of the three classes that need Falcon
+      awareness: CamundaClientImpl, CreateProcessInstanceCommandImpl,
+      JobWorkerBuilderImpl. Because they have the same fully-qualified names,
+      they win on the classpath.
+    - Ship a single shaded jar containing the stock classes plus our overrides.
+      Users depend only on this artifact; the stock jar is transitively excluded.
+    - Zero-code drop-in: swap the two Maven coordinates in the consumer pom;
+      CamundaClient.newClient() unchanged, transparently upgrades to Falcon
+      against a Nano gateway, stays on REST/gRPC against Camunda 8.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.nanobpm</groupId>
+  <artifactId>camunda-client-java-falcon</artifactId>
+  <version>1.0.0-SNAPSHOT</version>
+  <packaging>jar</packaging>
+
+  <name>Camunda Client Java (Falcon-aware)</name>
+  <description>
+    Drop-in replacement for io.camunda:camunda-client-java that auto-detects a
+    nanobpmn gateway and transparently upgrades createProcessInstance + job
+    workers to the Nano Falcon Protocol (WebSocket). Falls back to plain REST
+    against stock Camunda 8, and to REST when Falcon is blocked (e.g. by a
+    proxy) or forced off via CAMUNDA_FORCE_REST=1.
+  </description>
+  <url>https://github.com/jwulf/camunda-client-java-falcon</url>
+
+  <licenses>
+    <license>
+      <name>Apache License, Version 2.0</name>
+      <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+    </license>
+  </licenses>
+
+  <developers>
+    <developer>
+      <id>jwulf</id>
+      <name>Josh Wulf</name>
+    </developer>
+  </developers>
+
+  <scm>
+    <connection>scm:git:git@github.com:jwulf/camunda-client-java-falcon.git</connection>
+    <developerConnection>scm:git:git@github.com:jwulf/camunda-client-java-falcon.git</developerConnection>
+    <url>https://github.com/jwulf/camunda-client-java-falcon</url>
+  </scm>
+
+  <properties>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <maven.compiler.source>17</maven.compiler.source>
+    <maven.compiler.target>17</maven.compiler.target>
+
+    <!-- Bump to track new upstream releases. The three shadowed classes must
+         be re-diffed against upstream when this changes (see PATCHING.md). -->
+    <camunda.version>8.9.11</camunda.version>
+    <jackson.version>2.17.2</jackson.version>
+
+    <junit.version>5.11.0</junit.version>
+    <assertj.version>3.26.3</assertj.version>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>io.camunda</groupId>
+      <artifactId>camunda-client-java</artifactId>
+      <version>${camunda.version}</version>
+    </dependency>
+    <!-- Bring Jackson explicitly for Falcon frame JSON (matches the version
+         the stock client uses so no dep conflicts arise post-shade). -->
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+      <version>${jackson.version}</version>
+    </dependency>
+
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <version>${junit.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.assertj</groupId>
+      <artifactId>assertj-core</artifactId>
+      <version>${assertj.version}</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.13.0</version>
+      </plugin>
+      <plugin>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>3.5.0</version>
+      </plugin>
+      <plugin>
+        <artifactId>maven-source-plugin</artifactId>
+        <version>3.3.1</version>
+        <executions>
+          <execution>
+            <id>attach-sources</id>
+            <goals><goal>jar-no-fork</goal></goals>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <artifactId>maven-javadoc-plugin</artifactId>
+        <version>3.10.1</version>
+        <configuration>
+          <!-- We shade a lot of upstream API; skip javadoc lint noise. -->
+          <doclint>none</doclint>
+          <failOnError>false</failOnError>
+          <sourceFileExcludes>
+            <exclude>io/camunda/**</exclude>
+          </sourceFileExcludes>
+        </configuration>
+        <executions>
+          <execution>
+            <id>attach-javadocs</id>
+            <goals><goal>jar</goal></goals>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <!--
+          Fat jar: bundle the stock camunda-client-java classes into this
+          artifact so consumers depend on only one thing. Our own compiled
+          classes (in target/classes, same package/name) win over the shaded
+          stock versions.
+        -->
+        <artifactId>maven-shade-plugin</artifactId>
+        <version>3.6.0</version>
+        <executions>
+          <execution>
+            <phase>package</phase>
+            <goals><goal>shade</goal></goals>
+            <configuration>
+              <createDependencyReducedPom>true</createDependencyReducedPom>
+              <shadedArtifactAttached>false</shadedArtifactAttached>
+              <artifactSet>
+                <includes>
+                  <!-- Only bundle the stock client itself. Its transitive
+                       deps (jackson, apache httpclient5, grpc, etc.) stay
+                       as regular Maven dependencies of the shaded artifact
+                       so the consumer's dependency graph resolves normally. -->
+                  <include>io.camunda:camunda-client-java</include>
+                </includes>
+              </artifactSet>
+              <filters>
+                <filter>
+                  <artifact>io.camunda:camunda-client-java</artifact>
+                  <excludes>
+                    <!-- We ship patched versions of these; the stock class
+                         files must not enter the shaded jar (would clash). -->
+                    <exclude>io/camunda/client/impl/CamundaClientImpl.class</exclude>
+                    <exclude>io/camunda/client/impl/CamundaClientImpl$*.class</exclude>
+                    <exclude>io/camunda/client/impl/command/CreateProcessInstanceCommandImpl.class</exclude>
+                    <exclude>io/camunda/client/impl/command/CreateProcessInstanceCommandImpl$*.class</exclude>
+                    <exclude>io/camunda/client/impl/worker/JobWorkerBuilderImpl.class</exclude>
+                    <exclude>io/camunda/client/impl/worker/JobWorkerBuilderImpl$*.class</exclude>
+                    <!-- Signatures on the stock jar don't survive shading. -->
+                    <exclude>META-INF/*.SF</exclude>
+                    <exclude>META-INF/*.DSA</exclude>
+                    <exclude>META-INF/*.RSA</exclude>
+                  </excludes>
+                </filter>
+              </filters>
+              <transformers>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
+              </transformers>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+
+  <profiles>
+    <profile>
+      <!-- Activated for Maven Central publishing (see .github/workflows/release.yml). -->
+      <id>release</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-gpg-plugin</artifactId>
+            <version>3.2.7</version>
+            <executions>
+              <execution>
+                <id>sign-artifacts</id>
+                <phase>verify</phase>
+                <goals><goal>sign</goal></goals>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.sonatype.central</groupId>
+            <artifactId>central-publishing-maven-plugin</artifactId>
+            <version>0.6.0</version>
+            <extensions>true</extensions>
+            <configuration>
+              <publishingServerId>central</publishingServerId>
+              <autoPublish>true</autoPublish>
+              <waitUntil>published</waitUntil>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
+</project>
