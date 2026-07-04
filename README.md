@@ -67,6 +67,48 @@ same knob works across your polyglot fleet.
 
 Everything else uses the stock REST/gRPC paths, unchanged.
 
+## Embedded engine (Bernd)
+
+Beyond the auto-detected Falcon transport, this artifact also ships a
+direct `NanoTransport` abstraction with two implementations:
+
+* `NanoTransport.falcon(URI)` — remote WebSocket (wraps `FalconTransport`).
+* `NanoTransport.embedded(EmbeddedEngine)` — in-process engine, no gateway
+  process, via [`io.github.jwulf:nano-bernd`](https://central.sonatype.com/artifact/io.github.jwulf/nano-bernd).
+
+The dep on `nano-bernd` is declared `<optional>` — plain Falcon users don't
+pull it. To use embedded mode, add it explicitly:
+
+```xml
+<dependency>
+  <groupId>io.github.jwulf</groupId>
+  <artifactId>nano-bernd</artifactId>
+  <version>0.2.0</version>
+</dependency>
+```
+
+Then:
+
+```java
+try (var engine = EmbeddedEngine.create();
+     var transport = NanoTransport.embedded(engine)) {
+  engine.deploy(bpmnXml);
+  var in = new FalconTransport.CreateInstanceInput();
+  in.processDefinitionId = "my-process";
+  in.awaitCompletion = true;
+  var result = transport.createInstance(in).get();
+  result.completionFuture.get(); // resolves when the instance completes
+}
+```
+
+Worker code written against `NanoTransport.subscribe(...)` runs 1:1 over
+either transport, so a single application can toggle remote-vs-embedded
+by swapping the factory call.
+
+Current ABI v2 limitations (see [`docs/adr/0005-embedded-engine.md`](https://github.com/jwulf/nano-bpm/blob/main/docs/adr/0005-embedded-engine.md)):
+variables on create / complete are dropped, `throwError` degrades to
+`failJob(retries=0)`, `awaitCompletion` polls at 50 ms.
+
 ## Building
 
 ```

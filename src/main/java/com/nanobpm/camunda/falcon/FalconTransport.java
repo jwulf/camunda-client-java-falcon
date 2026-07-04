@@ -50,7 +50,7 @@ import org.slf4j.LoggerFactory;
  * caller so the SDK can fall back to REST (matching the JS/Rust SDK
  * behaviour).
  */
-public final class FalconTransport implements AutoCloseable {
+public final class FalconTransport implements com.nanobpm.camunda.transport.NanoTransport {
 
   private static final Logger LOG = LoggerFactory.getLogger(FalconTransport.class);
   private static final ObjectMapper JSON = new ObjectMapper();
@@ -351,6 +351,11 @@ public final class FalconTransport implements AutoCloseable {
       a.completeExceptionally(new RuntimeException("falcon closed"));
     }
     awaits.clear();
+  }
+
+  @Override
+  public boolean isOpen() {
+    return open && !closed;
   }
 
   // -------------------------------------------------------------------------

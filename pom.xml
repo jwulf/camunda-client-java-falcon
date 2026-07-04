@@ -64,6 +64,7 @@
          be re-diffed against upstream when this changes (see PATCHING.md). -->
     <camunda.version>8.9.11</camunda.version>
     <jackson.version>2.17.2</jackson.version>
+    <nano-bernd.version>0.2.0</nano-bernd.version>
 
     <junit.version>5.11.0</junit.version>
     <assertj.version>3.26.3</assertj.version>
@@ -83,6 +84,16 @@
       <version>${jackson.version}</version>
     </dependency>
 
+    <!-- Embedded engine (codename Bernd) — optional. Users who want
+         NanoTransport.embedded() must add this to their own pom. Plain Falcon
+         users don't pull it. -->
+    <dependency>
+      <groupId>io.github.jwulf</groupId>
+      <artifactId>nano-bernd</artifactId>
+      <version>${nano-bernd.version}</version>
+      <optional>true</optional>
+    </dependency>
+
     <dependency>
       <groupId>org.junit.jupiter</groupId>
       <artifactId>junit-jupiter</artifactId>
@@ -93,6 +104,14 @@
       <groupId>org.assertj</groupId>
       <artifactId>assertj-core</artifactId>
       <version>${assertj.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <!-- nano-bernd is optional at runtime, but we exercise the embedded path
+         in tests. -->
+    <dependency>
+      <groupId>io.github.jwulf</groupId>
+      <artifactId>nano-bernd</artifactId>
+      <version>${nano-bernd.version}</version>
       <scope>test</scope>
     </dependency>
   </dependencies>
