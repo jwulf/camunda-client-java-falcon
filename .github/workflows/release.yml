@@ -21,6 +21,10 @@ on:
       - 'v*'
   workflow_dispatch:
     inputs:
+      version:
+        description: 'Release version (e.g. 1.0.1). Required unless dry_run.'
+        type: string
+        required: false
       dry_run:
         description: 'Build + sign + bundle but do NOT upload to Central'
         type: boolean
@@ -36,10 +40,10 @@ jobs:
       name: maven-central
       url: https://central.sonatype.com/artifact/io.github.jwulf/camunda-client-java-falcon
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Java + Maven settings.xml + GPG
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
@@ -50,10 +54,22 @@ jobs:
           gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
           gpg-passphrase: MAVEN_GPG_PASSPHRASE      # env var maven-gpg-plugin reads
 
-      - name: Derive release version from tag
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Derive release version
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          elif [[ -n "${{ inputs.version }}" ]]; then
+            VERSION="${{ inputs.version }}"
+          elif [[ "${{ inputs.dry_run }}" == "true" ]]; then
+            VERSION="0.0.0-dryrun"
+          else
+            echo "ERROR: workflow_dispatch requires 'version' input (or dry_run=true)."
+            exit 1
+          fi
+          if [[ "$VERSION" == *-SNAPSHOT ]]; then
+            echo "ERROR: refusing to release a -SNAPSHOT version ($VERSION)."
+            exit 1
+          fi
           echo "Setting Maven version to $VERSION"
           mvn -B -q versions:set -DnewVersion="$VERSION" -DgenerateBackupPoms=false
 
