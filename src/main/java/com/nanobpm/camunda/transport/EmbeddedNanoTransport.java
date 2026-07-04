@@ -9,13 +9,12 @@
  */
 package com.nanobpm.camunda.transport;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.nanobpm.camunda.falcon.FalconTransport;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
@@ -94,6 +93,10 @@ final class EmbeddedNanoTransport implements NanoTransport {
   private final java.lang.reflect.Method jobVariables;
 
   private final Map<String, SubscriptionState> subs = new ConcurrentHashMap<>();
+  // Outstanding awaitCompletion futures — completed exceptionally on close()
+  // so callers don't block forever if the transport is torn down mid-poll.
+  private final Set<CompletableFuture<FalconTransport.InstanceCompleted>> pendingCompletions =
+      ConcurrentHashMap.newKeySet();
   private final ScheduledExecutorService scheduler =
       Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "nano-embedded-scheduler");
@@ -172,6 +175,12 @@ final class EmbeddedNanoTransport implements NanoTransport {
       if (s.pollHandle != null) s.pollHandle.cancel(false);
     });
     subs.clear();
+    // Fail any awaitCompletion futures still waiting so callers unblock.
+    final IllegalStateException reason = new IllegalStateException("transport closed");
+    for (final CompletableFuture<FalconTransport.InstanceCompleted> f : pendingCompletions) {
+      f.completeExceptionally(reason);
+    }
+    pendingCompletions.clear();
     scheduler.shutdownNow();
   }
 
@@ -214,6 +223,8 @@ final class EmbeddedNanoTransport implements NanoTransport {
     if (input.awaitCompletion) {
       final CompletableFuture<FalconTransport.InstanceCompleted> completion =
           new CompletableFuture<>();
+      pendingCompletions.add(completion);
+      completion.whenComplete((v, err) -> pendingCompletions.remove(completion));
       pollForCompletion(instanceKey, completion, input.requestTimeoutMs);
       result.completionFuture = completion;
     }
@@ -250,7 +261,12 @@ final class EmbeddedNanoTransport implements NanoTransport {
                   "instance " + instanceKey + " did not complete within " + timeoutMs + " ms"));
           return;
         }
-        scheduler.schedule(this, COMPLETION_POLL_MS, TimeUnit.MILLISECONDS);
+        try {
+          scheduler.schedule(this, COMPLETION_POLL_MS, TimeUnit.MILLISECONDS);
+        } catch (final java.util.concurrent.RejectedExecutionException ree) {
+          // Scheduler shut down between the closed-check and reschedule — close() will
+          // complete the future exceptionally via pendingCompletions cleanup.
+        }
       }
     }, COMPLETION_POLL_MS, TimeUnit.MILLISECONDS);
   }

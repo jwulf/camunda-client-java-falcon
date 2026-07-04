@@ -156,6 +156,32 @@ class EmbeddedNanoTransportTest {
   }
 
   @Test
+  void close_fails_pending_await_completion_futures() throws Exception {
+    try (EmbeddedEngine engine = EmbeddedEngine.create()) {
+      final NanoTransport transport = NanoTransport.embedded(engine);
+      transport.connect().get(2, TimeUnit.SECONDS);
+      engine.deploy(SERVICE_BPMN);   // has a service task that will park
+
+      final FalconTransport.CreateInstanceInput in = new FalconTransport.CreateInstanceInput();
+      in.processDefinitionId = "svc";
+      in.awaitCompletion = true;
+      in.requestTimeoutMs = 30_000L;
+
+      final FalconTransport.CommandResult res =
+          transport.createInstance(in).get(5, TimeUnit.SECONDS);
+      // Instance parks on the do-work job forever — completion should NOT be
+      // fulfilled by the engine before close().
+      assertThat(res.completionFuture.isDone()).isFalse();
+
+      transport.close();
+
+      // close() must fail the pending future so the caller unblocks.
+      assertThatThrownBy(() -> res.completionFuture.get(2, TimeUnit.SECONDS))
+          .hasCauseInstanceOf(IllegalStateException.class);
+    }
+  }
+
+  @Test
   void close_stops_polling_and_flips_isOpen() {
     try (EmbeddedEngine engine = EmbeddedEngine.create()) {
       final NanoTransport transport = NanoTransport.embedded(engine);

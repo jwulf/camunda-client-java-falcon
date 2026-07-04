@@ -73,8 +73,12 @@ Beyond the auto-detected Falcon transport, this artifact also ships a
 direct `NanoTransport` abstraction with two implementations:
 
 * `NanoTransport.falcon(URI)` — remote WebSocket (wraps `FalconTransport`).
-* `NanoTransport.embedded(EmbeddedEngine)` — in-process engine, no gateway
+* `NanoTransport.embedded(Object)` — in-process engine, no gateway
   process, via [`io.github.jwulf:nano-bernd`](https://central.sonatype.com/artifact/io.github.jwulf/nano-bernd).
+  The parameter is typed as `Object` (rather than `EmbeddedEngine`) so
+  this artifact compiles even when `nano-bernd` is absent from the
+  classpath. Pass an `io.github.jwulf.nano.bernd.EmbeddedEngine`
+  instance; anything else throws `IllegalArgumentException`.
 
 The dep on `nano-bernd` is declared `<optional>` — plain Falcon users don't
 pull it. To use embedded mode, add it explicitly:

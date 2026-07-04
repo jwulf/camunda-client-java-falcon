@@ -43,7 +43,22 @@ public interface NanoTransport extends AutoCloseable {
   /** Establish the underlying connection (WebSocket handshake, or engine boot). */
   CompletableFuture<Void> connect();
 
-  /** Whether the transport is currently open (post-connect, pre-close). */
+  /**
+   * Whether the transport is available to accept commands. The exact
+   * semantics vary by implementation:
+   *
+   * <ul>
+   *   <li>{@code FalconTransport} — {@code true} only after the WebSocket
+   *       has completed its {@code welcome} handshake with the gateway, and
+   *       {@code false} once {@link #close()} is called or the socket drops.</li>
+   *   <li>{@code EmbeddedNanoTransport} — {@code true} from construction
+   *       until {@link #close()} (the wrapped {@code EmbeddedEngine} is
+   *       assumed to be ready when the caller passes it in).</li>
+   * </ul>
+   *
+   * In both cases {@code isOpen() == false} means the transport will reject
+   * further command calls (usually with {@code IllegalStateException}).
+   */
   boolean isOpen();
 
   CompletableFuture<FalconTransport.CommandResult> createInstance(
