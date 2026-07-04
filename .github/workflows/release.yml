@@ -1,0 +1,86 @@
+name: release
+
+# Tag-triggered publish to Maven Central via the Central Portal.
+#
+# Guarded by the `maven-central` GitHub Environment — configure required
+# reviewers + wait timer + secret scoping there, so a stray tag push cannot
+# ship an unreviewed release.
+#
+# Required environment secrets (Settings → Environments → maven-central):
+#   CENTRAL_USERNAME     — user-token username half from https://central.sonatype.com/usertoken
+#   CENTRAL_PASSWORD     — user-token password half (regenerate on rotation)
+#   GPG_PRIVATE_KEY      — ASCII-armored private key: `gpg --armor --export-secret-keys <keyid>`
+#   GPG_PASSPHRASE       — passphrase for the above key
+#
+# When Maven Central ships OIDC Trusted Publishing (roadmap, not GA as of
+# 2026-07), this workflow should switch to that and drop all four secrets.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Build + sign + bundle but do NOT upload to Central'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    environment:
+      name: maven-central
+      url: https://central.sonatype.com/artifact/io.github.jwulf/camunda-client-java-falcon
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java + Maven settings.xml + GPG
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+          server-id: central                        # matches <publishingServerId> in pom.xml
+          server-username: MAVEN_CENTRAL_USERNAME   # env var name the server block reads
+          server-password: MAVEN_CENTRAL_PASSWORD
+          gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
+          gpg-passphrase: MAVEN_GPG_PASSPHRASE      # env var maven-gpg-plugin reads
+
+      - name: Derive release version from tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "Setting Maven version to $VERSION"
+          mvn -B -q versions:set -DnewVersion="$VERSION" -DgenerateBackupPoms=false
+
+      - name: Build + verify (fail fast before uploading)
+        run: mvn -B -DskipTests clean package
+
+      - name: Assert patched classes are present exactly once
+        run: |
+          jar=$(ls target/camunda-client-java-falcon-*.jar | grep -v original- | grep -v -e sources -e javadoc | head -1)
+          for c in \
+            io/camunda/client/impl/CamundaClientImpl.class \
+            io/camunda/client/impl/command/CreateProcessInstanceCommandImpl.class \
+            io/camunda/client/impl/worker/JobWorkerBuilderImpl.class; do
+            n=$(unzip -l "$jar" | grep -c " $c$" || true)
+            [ "$n" = "1" ] || { echo "ERROR: $c appears $n times"; exit 1; }
+          done
+
+      - name: Deploy to Maven Central
+        if: ${{ !inputs.dry_run }}
+        env:
+          MAVEN_CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
+          MAVEN_CENTRAL_PASSWORD: ${{ secrets.CENTRAL_PASSWORD }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: mvn -B -Prelease -DskipTests deploy
+
+      - name: Dry-run bundle only
+        if: ${{ inputs.dry_run }}
+        env:
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: mvn -B -Prelease -DskipTests -Dcentral.skipPublishing=true deploy
