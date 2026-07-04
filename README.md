@@ -23,7 +23,7 @@ Replace your existing dependency:
 
 <!-- after -->
 <dependency>
-  <groupId>com.nanobpm</groupId>
+  <groupId>io.github.jwulf</groupId>
   <artifactId>camunda-client-java-falcon</artifactId>
   <version>1.0.0</version>
 </dependency>
