@@ -98,6 +98,9 @@ final class FalconJobWorker implements JobWorker, Closeable {
       job = new ActivatedJobImpl(jsonMapper, rest);
     } catch (final Exception e) {
       LOG.warn("Falcon job frame parse failed: {}", e.getMessage());
+      // Even a bad frame consumed one credit at the server; replenish so we
+      // don't starve the subscription silently.
+      replenishOneCredit();
       return;
     }
     try {
@@ -115,6 +118,19 @@ final class FalconJobWorker implements JobWorker, Closeable {
       } catch (final Exception ignored) {
         // best effort — engine will time out the job at its deadline
       }
+    } finally {
+      // Each pushed job consumed one credit at the server; replenish so the
+      // subscription's window slides forward. Matches the JS / Rust SDKs.
+      replenishOneCredit();
+    }
+  }
+
+  private void replenishOneCredit() {
+    if (!open.get()) return;
+    try {
+      falcon.grantJobCredits(jobType, 1);
+    } catch (final Exception ignored) {
+      // best effort — a dropped credit frame just slows this worker
     }
   }
 
