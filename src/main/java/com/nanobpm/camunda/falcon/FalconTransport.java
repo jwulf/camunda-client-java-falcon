@@ -72,6 +72,18 @@ public final class FalconTransport implements com.nanobpm.camunda.transport.Nano
 
   private final CompletableFuture<Void> connected = new CompletableFuture<>();
 
+  /**
+   * Serialises outbound {@code ws.sendText} calls. Java's {@link WebSocket}
+   * contract requires the previous send's {@code CompletableFuture} to have
+   * completed before the next invocation, otherwise the second call's future
+   * completes exceptionally with {@code IllegalStateException}. Since frames
+   * originate from multiple threads (main thread for {@code subscribe} /
+   * {@code createInstance}, the {@code HttpClient} worker for scheduled
+   * heartbeats), we chain sends off this reference under {@link #sendLock}.
+   */
+  private final Object sendLock = new Object();
+  private CompletableFuture<WebSocket> sendTail = CompletableFuture.completedFuture(null);
+
   /** Accumulate multi-frame text messages. */
   private final StringBuilder textBuffer = new StringBuilder();
 
@@ -240,12 +252,31 @@ public final class FalconTransport implements com.nanobpm.camunda.transport.Nano
       LOG.debug("dropping Falcon frame; socket not open: {}", f.get("type"));
       return;
     }
+    final String json;
     try {
-      final String json = JSON.writeValueAsString(f);
-      LOG.debug("falcon → {}", json);
-      ws.sendText(json, true);
+      json = JSON.writeValueAsString(f);
     } catch (final Exception e) {
-      LOG.warn("falcon send failed", e);
+      LOG.warn("falcon serialise failed", e);
+      return;
+    }
+    LOG.debug("falcon → {}", json);
+    // Java's WebSocket forbids overlapping sendText calls; chain each send off
+    // the previous one so frames from multiple threads (heartbeat scheduler +
+    // client thread issuing subscribe / createInstance / completeJob) don't
+    // race and silently fail with IllegalStateException.
+    synchronized (sendLock) {
+      sendTail = sendTail
+          .thenCompose(prev -> {
+            final WebSocket sock = ws;
+            if (sock == null || !open) {
+              return CompletableFuture.completedFuture(null);
+            }
+            return sock.sendText(json, true);
+          })
+          .exceptionally(err -> {
+            LOG.warn("falcon send failed: {}", err.getMessage());
+            return null;
+          });
     }
   }
 
