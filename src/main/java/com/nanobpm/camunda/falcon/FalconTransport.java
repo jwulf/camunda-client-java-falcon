@@ -274,7 +274,7 @@ public final class FalconTransport implements com.nanobpm.camunda.transport.Nano
             return sock.sendText(json, true);
           })
           .exceptionally(err -> {
-            LOG.warn("falcon send failed: {}", err.getMessage());
+            LOG.warn("falcon send failed", err);
             return null;
           });
     }
